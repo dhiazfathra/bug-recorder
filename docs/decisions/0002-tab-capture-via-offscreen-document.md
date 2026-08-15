@@ -36,6 +36,7 @@ timer, so the in-memory log buffer survives recordings longer than 30 seconds.
 - Rejected: not possible.
 
 ### Persist state to `chrome.storage.session` (or IndexedDB) instead of a keepalive
+
 - Pros: The session survives an unexpected worker termination, not just the idle timeout.
 - Cons: A write per console line on a hot path, plus resume logic in the worker, the popup, and the
   offscreen document — for a failure mode that only occurs when Chrome kills the worker outright.
@@ -44,6 +45,7 @@ timer, so the in-memory log buffer survives recordings longer than 30 seconds.
   crash reports show real losses, this is the fix.
 
 ## Consequences
+
 - Only the active tab is recorded, never the whole screen. Bugs that involve another window or a
   native dialog are out of scope.
 - Audio is not captured. `tabCapture` audio mutes the tab for the user unless the stream is piped

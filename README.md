@@ -37,7 +37,7 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 |---|---|
 | `npm install` | Install the dev dependencies (ESLint only — the extension itself has none) |
 | `npm ci` | Install them exactly as pinned in `package-lock.json` |
-| `npm test` | Run the report-builder tests |
+| `npm test` | Run all automated tests |
 | `npm run lint` | Run ESLint |
 
 ## Architecture
