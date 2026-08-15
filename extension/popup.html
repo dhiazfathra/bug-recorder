@@ -2,13 +2,67 @@
 <meta charset="utf-8" />
 <title>Bug Recorder</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 14px ui-sans-serif, system-ui, sans-serif; width: 260px; margin: 0; padding: 12px; }
-  input, button { font: inherit; width: 100%; box-sizing: border-box; padding: 6px; }
-  button { margin-top: 8px; cursor: pointer; }
-  p { margin: 8px 0 0; opacity: .7; font-size: 12px; }
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa;
+    --card: #fff;
+    --line: #e8e8e6;
+    --text: #1c1c1a;
+    --muted: #75756f;
+    --accent: #f4547a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1a1a19; --card: #232322; --line: #343432; --text: #f2f2f0; --muted: #a3a39c; }
+  }
+  body {
+    font: 14px ui-sans-serif, system-ui, sans-serif;
+    width: 300px; margin: 0; padding: 14px;
+    background: var(--bg); color: var(--text);
+  }
+  header { display: flex; align-items: center; gap: 8px; padding: 0 2px 12px; }
+  .mark { display: flex; gap: 3px; }
+  .mark i {
+    width: 9px; height: 15px; background: var(--accent);
+    border-radius: 5px 5px 4px 4px;
+  }
+  .mark i:nth-child(2) { height: 18px; }
+  h1 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; display: grid; gap: 10px;
+  }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .label { font-size: 13px; font-weight: 500; }
+  .pill {
+    font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+  }
+  input {
+    font: inherit; width: 100%; box-sizing: border-box; padding: 9px 10px;
+    border: 1px solid var(--line); border-radius: 9px;
+    background: var(--bg); color: inherit;
+  }
+  input::placeholder { color: var(--muted); }
+  input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    font: inherit; font-weight: 600; width: 100%; box-sizing: border-box;
+    padding: 10px; border: 0; border-radius: 9px; cursor: pointer;
+    background: var(--accent); color: #fff;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  p { margin: 10px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 </style>
-<input id="description" aria-label="Bug description" placeholder="What is the bug?" />
-<button id="toggle">Start recording</button>
+<header>
+  <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+  <h1>Bug Recorder</h1>
+</header>
+<div class="card">
+  <div class="row">
+    <span class="label">Record Tab</span>
+    <span class="pill">video + logs</span>
+  </div>
+  <input id="description" aria-label="Bug description" placeholder="What is the bug?" />
+  <button id="toggle">Start recording</button>
+</div>
 <p id="hint"></p>
 <script src="popup.js"></script>
