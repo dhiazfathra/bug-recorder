@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "minimum_chrome_version": "116",
   "description": "Record a tab as video with its console and network logs, then export one shareable self-contained HTML report.",
-  "permissions": ["tabCapture", "offscreen", "downloads", "webRequest"],
+  "permissions": ["activeTab", "tabCapture", "offscreen", "downloads", "webRequest"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html" },

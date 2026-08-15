@@ -38,6 +38,8 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 | `npm install` | Install the dev dependencies (ESLint only — the extension itself has none) |
 | `npm ci` | Install them exactly as pinned in `package-lock.json` |
 | `npm test` | Run all automated tests |
+| `npm run e2e:setup` | Download the pinned Chrome for Testing (once, before `test:e2e`) |
+| `npm run test:e2e` | Run the browser tests against a really-installed extension |
 | `npm run lint` | Run ESLint |
 
 ## Architecture
@@ -65,9 +67,18 @@ Seven files, no build step, no runtime dependencies. The reasoning behind each p
 serialization, and the offscreen control flow (cleanup on a failed recorder start, `recording-ended`
 firing even when the download is cancelled). Those offscreen tests fake `MediaRecorder`,
 `getUserMedia`, `FileReader` and `URL.createObjectURL` — they prove the control flow, **not that
-Chrome actually records a tab**. The real capture path has no automated coverage and is only
-verifiable by loading the extension and recording something. Do that after any change to
-`offscreen.js` or the `tabCapture` handshake.
+Chrome actually records a tab**.
+
+`npm run test:e2e` installs the extension into a real (pinned) Chrome and checks what unit tests
+cannot: that the manifest loads, that the MAIN-world console patch and relay content script really
+deliver entries to the service worker on a live page, and that a generated report renders its video
+element and both log kinds. Run `npm run e2e:setup` once first to download Chrome for Testing.
+
+**The video capture path still has no automated coverage.** `chrome.tabCapture` only issues a stream
+after the extension has been *invoked* on the tab — the `activeTab` grant — and that invocation must
+come from a genuine click on the toolbar icon. CDP cannot synthesize input into browser chrome, so no
+harness can grant it; `getMediaStreamId` fails with *"Extension has not been invoked for the current
+page"*. After changing `offscreen.js` or the `tabCapture` handshake, record something by hand.
 
 ## Known limits
 
@@ -82,6 +93,8 @@ verifiable by loading the extension and recording something. Do that after any c
 
 ## Permissions
 
-`<all_urls>` plus `webRequest` are needed to observe console and network activity on whichever page
-you are debugging. Nothing is recorded until you press Start, only the recorded tab is observed, and
+`activeTab` is what lets `tabCapture` hand out a stream: Chrome only allows capture after you invoke
+the extension by clicking its toolbar icon, and without this permission that invocation grants
+nothing and recording fails to start. `<all_urls>` plus `webRequest` are needed to observe console
+and network activity on whichever page you are debugging. Nothing is recorded until you press Start, only the recorded tab is observed, and
 nothing ever leaves your machine — the extension makes no network requests of its own.

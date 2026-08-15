@@ -5,10 +5,13 @@
   "description": "Chrome extension that records a tab as video with its console and network logs.",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:e2e": "node --test test/e2e.mjs",
+    "e2e:setup": "npx @puppeteer/browsers install chrome@stable --path ./.chrome-for-testing"
   },
   "devDependencies": {
     "eslint": "~9.17.0",
-    "globals": "^15.14.0"
+    "globals": "^15.14.0",
+    "puppeteer-core": "^25.7.0"
   }
 }
