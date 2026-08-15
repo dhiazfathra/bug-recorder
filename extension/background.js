@@ -42,6 +42,10 @@ chrome.webRequest.onErrorOccurred.addListener((d) => finish(d, 0, d.error), filt
 
 // --- messaging ---
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // sendMessage broadcasts to every context including the sender itself, so a
+  // message we addressed to the offscreen document would otherwise loop back
+  // here and be reprocessed as our own start/stop command.
+  if (msg.target === 'offscreen') return;
   if (msg.type === 'log') {
     if (sender.tab?.id === session?.tabId) add(msg.entry);
     return;

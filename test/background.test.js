@@ -16,7 +16,13 @@ function loadBackground(overrides = {}) {
     },
     runtime: {
       onMessage: { addListener: (fn) => { listeners.onMessage = fn; } },
-      sendMessage: (msg) => { sent.push(msg); return Promise.resolve(overrides.startResponse); },
+      sendMessage: (msg) => {
+        sent.push(msg);
+        // Real Chrome delivers a sendMessage broadcast back to the sender's own
+        // onMessage listener too, so simulate that self-delivery here.
+        listeners.onMessage(msg, {}, () => {});
+        return Promise.resolve(overrides.startResponse);
+      },
     },
     tabs: {
       onRemoved: { addListener: (fn) => { listeners.onRemoved = fn; } },
@@ -105,6 +111,17 @@ test('failed createDocument clears session', async () => {
 
   assert.match(res.error, /boom/);
   assert.strictEqual((await bg.getStatus()).recording, false);
+});
+
+test('stop does not recurse when sendMessage self-delivers the offscreen-targeted message', async () => {
+  const bg = loadBackground();
+  await bg.start();
+  bg.sent.length = 0;
+
+  await new Promise((resolve) => bg.listeners.onMessage({ type: 'stop' }, {}, resolve));
+
+  const stopMessagesToOffscreen = bg.sent.filter((m) => m.target === 'offscreen' && m.type === 'stop');
+  assert.strictEqual(stopMessagesToOffscreen.length, 1, 'stop sent exactly once, no self-triggered loop');
 });
 
 test('onRemoved for an unrelated tab does not touch an active session', async () => {
