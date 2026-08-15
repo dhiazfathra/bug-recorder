@@ -59,6 +59,16 @@ Seven files, no build step, no runtime dependencies. The reasoning behind each p
 - [ADR-0003](docs/decisions/0003-log-capture-console-patch-plus-webrequest.md) — console via MAIN-world patch, network via `webRequest`, and why not `chrome.debugger`
 - [ADR-0004](docs/decisions/0004-scope-cut-from-jam.md) — what was cut from Jam, and how to add it back
 
+## Testing status
+
+`npm test` covers the report builder, the service-worker log collection and lifecycle, console
+serialization, and the offscreen control flow (cleanup on a failed recorder start, `recording-ended`
+firing even when the download is cancelled). Those offscreen tests fake `MediaRecorder`,
+`getUserMedia`, `FileReader` and `URL.createObjectURL` — they prove the control flow, **not that
+Chrome actually records a tab**. The real capture path has no automated coverage and is only
+verifiable by loading the extension and recording something. Do that after any change to
+`offscreen.js` or the `tabCapture` handshake.
+
 ## Known limits
 
 - **Active tab only.** No screen or window capture, no audio.

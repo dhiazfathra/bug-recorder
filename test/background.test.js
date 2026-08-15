@@ -6,7 +6,8 @@ function loadBackground(overrides = {}) {
   const closeDocumentCalls = [];
   const sent = [];
 
-  global.navigator = { userAgent: 'test-agent' };
+  // navigator is a read-only global in Node, so a plain assignment is a no-op.
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'test-agent' }, configurable: true });
   global.chrome = {
     webRequest: {
       onBeforeRequest: { addListener: (fn) => { listeners.onBeforeRequest = fn; } },
