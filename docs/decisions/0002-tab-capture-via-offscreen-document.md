@@ -35,14 +35,20 @@ timer, so the in-memory log buffer survives recordings longer than 30 seconds.
   not available there anyway.
 - Rejected: not possible.
 
-### Persist state to `chrome.storage.session` instead of a keepalive
-- Pros: Correct even if the worker is killed outright.
-- Cons: A write per console line; more code for a failure mode the keepalive already covers.
-- Rejected: the keepalive is three lines.
+### Persist state to `chrome.storage.session` (or IndexedDB) instead of a keepalive
+- Pros: The session survives an unexpected worker termination, not just the idle timeout.
+- Cons: A write per console line on a hot path, plus resume logic in the worker, the popup, and the
+  offscreen document — for a failure mode that only occurs when Chrome kills the worker outright.
+- Rejected, knowingly: the keepalive is three lines and covers the common case (the idle timer). We
+  accept losing a session to a hard termination rather than carry persistence for every log line. If
+  crash reports show real losses, this is the fix.
 
 ## Consequences
 - Only the active tab is recorded, never the whole screen. Bugs that involve another window or a
   native dialog are out of scope.
 - Audio is not captured. `tabCapture` audio mutes the tab for the user unless the stream is piped
   back to an `AudioContext`, which is more machinery than a bug report needs.
+- **The session is in memory only.** The keepalive prevents the *idle* shutdown, not every shutdown.
+  If Chrome terminates the service worker unexpectedly (crash, update, memory pressure), the log
+  buffer and the in-progress session are lost and the recording has to be redone.
 - Output is `video/webm` — the only format `MediaRecorder` guarantees in Chrome.

@@ -7,6 +7,9 @@ no account, no server, no extension needed on the other end.
 
 ## Quick start
 
+Chrome 116 or newer is required — earlier versions bind `tabCapture` stream IDs to the frame that
+created them, so the offscreen document cannot use them.
+
 1. Clone the repo.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, select the
    `extension/` folder.
@@ -33,6 +36,7 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 | Command | Description |
 |---|---|
 | `npm install` | Install the dev dependencies (ESLint only — the extension itself has none) |
+| `npm ci` | Install them exactly as pinned in `package-lock.json` |
 | `npm test` | Run the report-builder tests |
 | `npm run lint` | Run ESLint |
 

@@ -15,12 +15,15 @@ const filter = { urls: ['<all_urls>'] };
 const forTab = (d) => session && d.tabId === session.tabId;
 
 chrome.webRequest.onBeforeRequest.addListener((d) => {
-  if (forTab(d)) session.pending.set(d.requestId, d.timeStamp);
+  // Requests that never complete (stalled, aborted below the API) would grow
+  // pending forever, so cap it the same way entries are capped.
+  if (forTab(d) && session.pending.size < MAX_ENTRIES) session.pending.set(d.requestId, d.timeStamp);
 }, filter);
 
 const finish = (d, status, error) => {
   if (!forTab(d)) return;
-  const started = session.pending.get(d.requestId) ?? d.timeStamp;
+  const started = session.pending.get(d.requestId);
+  if (started === undefined) return; // untracked (pre-recording or dropped by the cap)
   session.pending.delete(d.requestId);
   add({
     kind: 'network',
@@ -78,12 +81,6 @@ async function start(description) {
 
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
 
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: ['USER_MEDIA'],
-    justification: 'Record the captured tab stream with MediaRecorder.',
-  });
-
   session = {
     tabId: tab.id,
     startedAt: Date.now(),
@@ -92,7 +89,22 @@ async function start(description) {
     entries: [],
     pending: new Map(),
   };
-  await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
+
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['USER_MEDIA'],
+      justification: 'Record the captured tab stream with MediaRecorder.',
+    });
+    // The offscreen listener reports failures in the response rather than rejecting.
+    const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
+    if (res?.error) throw new Error(res.error);
+  } catch (e) {
+    // Otherwise session + offscreen doc leak and no later stop can ever end them.
+    session = null;
+    await chrome.offscreen.closeDocument().catch(() => {});
+    throw e;
+  }
 }
 
 async function stop() {

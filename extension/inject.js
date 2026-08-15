@@ -7,7 +7,9 @@
     if (typeof v === 'string') return v;
     if (v instanceof Error) return `${v.name}: ${v.message}\n${v.stack || ''}`;
     try {
-      return JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? String(val) : val));
+      // stringify returns undefined for undefined/function/symbol -> blank entry
+      const s = JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? String(val) : val));
+      return s === undefined ? String(v) : s;
     } catch {
       return String(v);
     }

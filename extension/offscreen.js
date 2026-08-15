@@ -16,12 +16,19 @@ async function startCapture(streamId) {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
   });
-  chunks = [];
-  recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.start();
-  // Messaging resets the service worker idle timer, so state survives a long recording.
-  keepAlive = setInterval(() => chrome.runtime.sendMessage({ type: 'keepalive' }).catch(() => {}), 20000);
+  try {
+    chunks = [];
+    recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    recorder.start();
+    // Messaging resets the service worker idle timer, so state survives a long recording.
+    keepAlive = setInterval(() => chrome.runtime.sendMessage({ type: 'keepalive' }).catch(() => {}), 20000);
+  } catch (e) {
+    // Stream is already live; leaving it running keeps the tab's capture indicator on.
+    stream.getTracks().forEach((t) => t.stop());
+    recorder = null;
+    throw e;
+  }
 }
 
 async function stopCapture(report) {
@@ -37,12 +44,16 @@ async function stopCapture(report) {
   chunks = [];
 
   const html = new Blob([buildReport({ ...report, video })], { type: 'text/html' });
-  await chrome.downloads.download({
-    url: URL.createObjectURL(html),
-    filename: `bug-report-${new Date(report.startedAt).toISOString().replace(/[:.]/g, '-')}.html`,
-    saveAs: true,
-  });
-  chrome.runtime.sendMessage({ type: 'recording-ended' }).catch(() => {});
+  try {
+    await chrome.downloads.download({
+      url: URL.createObjectURL(html),
+      filename: `bug-report-${new Date(report.startedAt).toISOString().replace(/[:.]/g, '-')}.html`,
+      saveAs: true,
+    });
+  } finally {
+    // Must fire even on a failed/cancelled download or the background session never clears.
+    chrome.runtime.sendMessage({ type: 'recording-ended' }).catch(() => {});
+  }
 }
 
 const blobToDataUrl = (blob) =>

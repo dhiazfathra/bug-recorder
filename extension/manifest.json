@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Bug Recorder",
   "version": "0.1.0",
+  "minimum_chrome_version": "116",
   "description": "Record a tab as video with its console and network logs, then export one shareable self-contained HTML report.",
   "permissions": ["tabCapture", "offscreen", "downloads", "webRequest"],
   "host_permissions": ["<all_urls>"],
