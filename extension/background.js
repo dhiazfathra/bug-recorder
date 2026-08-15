@@ -61,6 +61,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// tab closed/navigated away mid-recording: stream dies with it, so finalize
+// and clear state ourselves or the next start() fails on a stale offscreen doc.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (session?.tabId !== tabId) return;
+  stop().catch(() => {}).finally(() => {
+    session = null;
+    chrome.offscreen.closeDocument().catch(() => {});
+  });
+});
+
 // --- lifecycle ---
 async function start(description) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
