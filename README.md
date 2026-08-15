@@ -38,7 +38,7 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 | `npm install` | Install the dev dependencies (ESLint only — the extension itself has none) |
 | `npm ci` | Install them exactly as pinned in `package-lock.json` |
 | `npm test` | Run all automated tests |
-| `npm run e2e:setup` | Download the pinned Chrome for Testing (once, before `test:e2e`) |
+| `npm run e2e:setup` | Download Chrome for Testing 152.0.7977.42 (once, before `test:e2e`) |
 | `npm run test:e2e` | Run the browser tests against a really-installed extension |
 | `npm run lint` | Run ESLint |
 
@@ -72,7 +72,11 @@ Chrome actually records a tab**.
 `npm run test:e2e` installs the extension into a real (pinned) Chrome and checks what unit tests
 cannot: that the manifest loads, that the MAIN-world console patch and relay content script really
 deliver entries to the service worker on a live page, and that a generated report renders its video
-element and both log kinds. Run `npm run e2e:setup` once first to download Chrome for Testing.
+element and both log kinds. Run `npm run e2e:setup` once first; it downloads the exact build the
+suite is pinned to, **Chrome for Testing 152.0.7977.42**, so every machine runs the same browser.
+The pin also matters for a second reason: Chrome 137+ ignores `--load-extension` unless
+`--disable-features=DisableLoadExtensionCommandLineSwitch` is passed, and regular Chrome no longer
+honours that escape hatch at all.
 
 **The video capture path still has no automated coverage.** `chrome.tabCapture` only issues a stream
 after the extension has been *invoked* on the tab — the `activeTab` grant — and that invocation must

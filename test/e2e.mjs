@@ -32,7 +32,7 @@ const chromePath = () => {
   const platform = fs.readdirSync(path.join(root, version))[0];
   const binary = platform.includes('mac')
     ? ['Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing']
-    : ['chrome'];
+    : [platform.includes('win') ? 'chrome.exe' : 'chrome'];
   return path.join(root, version, platform, ...binary);
 };
 
@@ -42,6 +42,8 @@ const FIXTURE = `<!doctype html><title>Fixture</title><h1>fixture page</h1><scri
   console.error('an error');
   fetch('/api/thing').then(() => console.info('fetch settled'));
 </script>`;
+
+const WANT_LEVELS = ['log', 'warn', 'error', 'info'];
 
 async function withBrowser(fn) {
   const server = http.createServer((req, res) => {
@@ -108,14 +110,21 @@ test('console output on a real page reaches the service worker', { timeout: 6000
 
     const page = await browser.newPage();
     await page.goto(origin, { waitUntil: 'networkidle2' });
-    await new Promise((r) => setTimeout(r, 1200));
 
-    const seen = await swEval(sw, `self.__seen`);
+    // Poll rather than sleep: content-script and worker delivery are not
+    // synchronised with page load, so a fixed wait is flaky on slow machines.
+    // On timeout fall through and let the assertions report what was missing.
+    let seen = [];
+    for (const deadline = Date.now() + 15000; Date.now() < deadline;) {
+      seen = await swEval(sw, `self.__seen`);
+      if (WANT_LEVELS.every((l) => seen.some((e) => e.level === l))) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     const levels = seen.map((e) => e.level);
     const texts = seen.map((e) => e.text).join('\n');
 
     assert.ok(seen.length >= 4, `expected the page's console calls, got ${seen.length}`);
-    for (const level of ['log', 'warn', 'error', 'info']) {
+    for (const level of WANT_LEVELS) {
       assert.ok(levels.includes(level), `missing ${level} entry; saw ${levels.join(',')}`);
     }
     assert.match(texts, /plain log/);
