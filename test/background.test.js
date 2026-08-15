@@ -5,6 +5,7 @@ function loadBackground(overrides = {}) {
   const listeners = { onRemoved: null, onMessage: null, onBeforeRequest: null, onCompleted: null };
   const closeDocumentCalls = [];
   const sent = [];
+  let calls = 0;
 
   // navigator is a read-only global in Node, so a plain assignment is a no-op.
   Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'test-agent' }, configurable: true });
@@ -19,7 +20,11 @@ function loadBackground(overrides = {}) {
       sendMessage: (msg) => {
         sent.push(msg);
         // Real Chrome delivers a sendMessage broadcast back to the sender's own
-        // onMessage listener too, so simulate that self-delivery here.
+        // onMessage listener too, so simulate that self-delivery here. The loop it
+        // used to cause is asynchronous (each nested start/stop yields at its first
+        // await), so cap total calls rather than nesting depth — otherwise a
+        // reintroduced loop hangs the run instead of failing it.
+        if (++calls > 50) throw new Error('message loop: background reprocessed its own broadcast');
         listeners.onMessage(msg, {}, () => {});
         return Promise.resolve(overrides.startResponse);
       },
@@ -113,15 +118,43 @@ test('failed createDocument clears session', async () => {
   assert.strictEqual((await bg.getStatus()).recording, false);
 });
 
-test('stop does not recurse when sendMessage self-delivers the offscreen-targeted message', async () => {
+// chrome.runtime.sendMessage delivers to the sender's OWN onMessage listener as
+// well as to other contexts. Without a target guard the worker reprocessed the
+// {target:'offscreen'} message it had just sent as a fresh command, recursing
+// until the popup's click never got a response — pressing Stop did nothing and
+// no report was ever downloaded.
+
+test('stop reaches the offscreen document exactly once', async () => {
   const bg = loadBackground();
   await bg.start();
   bg.sent.length = 0;
 
   await new Promise((resolve) => bg.listeners.onMessage({ type: 'stop' }, {}, resolve));
 
-  const stopMessagesToOffscreen = bg.sent.filter((m) => m.target === 'offscreen' && m.type === 'stop');
-  assert.strictEqual(stopMessagesToOffscreen.length, 1, 'stop sent exactly once, no self-triggered loop');
+  const stops = bg.sent.filter((m) => m.target === 'offscreen' && m.type === 'stop');
+  assert.strictEqual(stops.length, 1, 'one stop, no self-triggered repeats');
+});
+
+test('start reaches the offscreen document exactly once', async () => {
+  const bg = loadBackground();
+
+  const res = await bg.start();
+
+  assert.deepStrictEqual(res, { ok: true });
+  const starts = bg.sent.filter((m) => m.target === 'offscreen' && m.type === 'start');
+  assert.strictEqual(starts.length, 1, 'one start, no self-triggered repeats');
+});
+
+test('offscreen-targeted messages are ignored by the service worker', async () => {
+  const bg = loadBackground();
+  await bg.start();
+
+  // A stop addressed to the offscreen document must not be mistaken for the
+  // popup's stop command, even though both carry type:'stop'.
+  const handled = bg.listeners.onMessage({ target: 'offscreen', type: 'stop', report: {} }, {}, () => {});
+
+  assert.strictEqual(handled, undefined, 'no response claimed for a message meant for offscreen');
+  assert.strictEqual((await bg.getStatus()).recording, true, 'session untouched');
 });
 
 test('onRemoved for an unrelated tab does not touch an active session', async () => {
