@@ -5,14 +5,28 @@ function loadBackground(overrides = {}) {
   const listeners = { onRemoved: null, onMessage: null, onBeforeRequest: null, onCompleted: null };
   const closeDocumentCalls = [];
   const sent = [];
+  const capture = []; // { tabId, on } pushed as content scripts are switched
+  // webRequest listeners are attached only while recording, so track both the
+  // filters they were attached with and whether they were detached again.
+  const attached = { onBeforeRequest: null, onCompleted: null, onErrorOccurred: null };
+  const filters = [];
+
+  const web = (name) => ({
+    addListener: (fn, filter) => {
+      attached[name] = fn;
+      listeners[name] = fn;
+      if (filter) filters.push({ name, ...filter });
+    },
+    removeListener: () => { attached[name] = null; },
+  });
 
   // navigator is a read-only global in Node, so a plain assignment is a no-op.
   Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'test-agent' }, configurable: true });
   global.chrome = {
     webRequest: {
-      onBeforeRequest: { addListener: (fn) => { listeners.onBeforeRequest = fn; } },
-      onCompleted: { addListener: (fn) => { listeners.onCompleted = fn; } },
-      onErrorOccurred: { addListener: () => {} },
+      onBeforeRequest: web('onBeforeRequest'),
+      onCompleted: web('onCompleted'),
+      onErrorOccurred: web('onErrorOccurred'),
     },
     runtime: {
       onMessage: { addListener: (fn) => { listeners.onMessage = fn; } },
@@ -21,6 +35,10 @@ function loadBackground(overrides = {}) {
     tabs: {
       onRemoved: { addListener: (fn) => { listeners.onRemoved = fn; } },
       query: () => Promise.resolve([{ id: 7, url: 'https://example.com', ...overrides.tab }]),
+      sendMessage: (tabId, msg) => {
+        if (msg.type === 'capture') capture.push({ tabId, on: msg.on });
+        return Promise.resolve();
+      },
     },
     tabCapture: { getMediaStreamId: () => Promise.resolve('stream-1') },
     offscreen: {
@@ -44,7 +62,7 @@ function loadBackground(overrides = {}) {
     listeners.onMessage({ type: 'stop', description }, {}, resolve);
   }).then(() => sent.find((m) => m.type === 'stop').report);
 
-  return { listeners, getStatus, closeDocumentCalls, sent, start, stopReport };
+  return { listeners, getStatus, closeDocumentCalls, sent, start, stopReport, capture, attached, filters };
 }
 
 test('tab closed mid-recording clears session so next start is not blocked', async () => {
@@ -109,6 +127,59 @@ test('failed createDocument clears session', async () => {
 
   assert.match(res.error, /boom/);
   assert.strictEqual((await bg.getStatus()).recording, false);
+});
+
+// An idle extension must cost the browser nothing: listeners left on <all_urls>
+// wake this worker for every request in every tab. See ADR-0005.
+test('an idle extension watches no network traffic at all', () => {
+  const bg = loadBackground();
+
+  assert.deepStrictEqual(
+    Object.values(bg.attached).filter(Boolean), [],
+    'nothing is attached until a recording starts');
+});
+
+test('recording attaches listeners scoped to the recorded tab only', async () => {
+  const bg = loadBackground();
+  await bg.start();
+
+  assert.strictEqual(Object.values(bg.attached).filter(Boolean).length, 3);
+  assert.deepStrictEqual([...new Set(bg.filters.map((f) => f.tabId))], [7],
+    'filtered to the recorded tab, not <all_urls> browser-wide');
+  assert.deepStrictEqual(bg.capture, [{ tabId: 7, on: true }],
+    'the page is told to start serializing console calls');
+});
+
+test('stopping detaches every listener and silences the page', async () => {
+  const bg = loadBackground();
+  await bg.start();
+  await bg.stopReport();
+  // fire-and-forget: this branch never calls sendResponse
+  bg.listeners.onMessage({ type: 'recording-ended' }, {}, () => {});
+
+  assert.deepStrictEqual(Object.values(bg.attached).filter(Boolean), [],
+    'listeners must not survive the recording');
+  assert.deepStrictEqual(bg.capture.at(-1), { tabId: 7, on: false });
+});
+
+test('a failed start leaves nothing attached behind', async () => {
+  const bg = loadBackground({ startResponse: { error: 'NotAllowedError' } });
+  await bg.start();
+
+  assert.deepStrictEqual(Object.values(bg.attached).filter(Boolean), [],
+    'a failed start must not leak listeners onto every page');
+  assert.deepStrictEqual(bg.capture.at(-1), { tabId: 7, on: false });
+});
+
+test('a tab closed mid-recording detaches its listeners', async () => {
+  const bg = loadBackground();
+  await bg.start();
+
+  bg.listeners.onRemoved(7);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepStrictEqual(Object.values(bg.attached).filter(Boolean), []);
 });
 
 test('the name is generated from the page title, no typing required', async () => {

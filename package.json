@@ -7,6 +7,7 @@
     "test": "node --test test/*.test.js",
     "lint": "eslint .",
     "test:e2e": "node --test test/e2e.mjs",
+    "bench": "node bench/idle-cost.mjs",
     "e2e:setup": "npx @puppeteer/browsers install chrome@152.0.7977.42 --path ./.chrome-for-testing"
   },
   "devDependencies": {

@@ -111,6 +111,25 @@ test('console output on a real page reaches the service worker', { timeout: 6000
     const page = await browser.newPage();
     await page.goto(origin, { waitUntil: 'networkidle2' });
 
+    // The page is silent until a recording starts (ADR-0005), so nothing should
+    // have arrived from its load-time console calls.
+    assert.deepStrictEqual(await swEval(sw, 'self.__seen'), [],
+      'an idle extension must not be fed console output');
+
+    // Switch it on the way start() does, then make the calls we expect to see.
+    await swEval(sw, `(async () => {
+      for (const t of await chrome.tabs.query({})) {
+        await chrome.tabs.sendMessage(t.id, { type: 'capture', on: true }).catch(() => {});
+      }
+      return true;
+    })()`);
+    await page.evaluate(() => {
+      console.log('plain log', { a: 1 });
+      console.warn('a warning');
+      console.error('an error');
+      console.info('fetch settled');
+    });
+
     // Poll rather than sleep: content-script and worker delivery are not
     // synchronised with page load, so a fixed wait is flaky on slow machines.
     // On timeout fall through and let the assertions report what was missing.

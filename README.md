@@ -42,6 +42,7 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 | `npm test` | Run all automated tests |
 | `npm run e2e:setup` | Download Chrome for Testing 152.0.7977.42 (once, before `test:e2e`) |
 | `npm run test:e2e` | Run the browser tests against a really-installed extension |
+| `npm run bench` | Measure what the extension costs while idle (needs `e2e:setup` too) |
 | `npm run lint` | Run ESLint |
 
 ## Architecture
@@ -62,6 +63,17 @@ Seven files, no build step, no runtime dependencies. The reasoning behind each p
 - [ADR-0002](docs/decisions/0002-tab-capture-via-offscreen-document.md) — `tabCapture` + offscreen document for video under MV3
 - [ADR-0003](docs/decisions/0003-log-capture-console-patch-plus-webrequest.md) — console via MAIN-world patch, network via `webRequest`, and why not `chrome.debugger`
 - [ADR-0004](docs/decisions/0004-scope-cut-from-jam.md) — what was cut from Jam, and how to add it back
+- [ADR-0005](docs/decisions/0005-idle-cost-nothing-runs-until-recording.md) — why nothing runs until you press Start
+
+## Cost when you are not recording
+
+An installed extension that watches every request and every `console.log` in every tab makes the
+whole browser slower, most visibly when a session restore opens many tabs at once. This one is
+inert until you press Start: `webRequest` listeners are attached only while recording and scoped to
+the single recorded tab, and the console patch checks one boolean and calls through. Measured with
+`npm run bench` — 12 tabs opened simultaneously went from **+42% slower to no measurable
+overhead**. What remains is ~7us per `console.log`, from the inert wrapper. ADR-0005 has the
+numbers and the trade-offs.
 
 ## Testing status
 
@@ -92,8 +104,9 @@ page"*. After changing `offscreen.js` or the `tabCapture` handshake, record some
 - **No response bodies or headers** in the network log — status, timing, and resource type only.
 - **Long recordings produce large files.** Base64 adds ~33% on top of the video; this targets
   minute-scale recordings, not hour-long sessions.
-- **Console capture starts when the content script runs.** Pages already open when the extension is
-  installed or reloaded need a refresh.
+- **Console capture starts when you press Start.** Nothing before that is kept — the page is not
+  serializing anything until then (ADR-0005). Pages already open when the extension is installed or
+  reloaded need a refresh before they can be recorded at all.
 - **Reports are unredacted.** The video and logs contain whatever was on screen and in the console,
   including tokens and personal data. Check a report before sending it.
 

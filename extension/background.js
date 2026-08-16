@@ -11,14 +11,18 @@ const add = (entry) => {
 };
 
 // --- network (webRequest sees every request, not just fetch/XHR) ---
-const filter = { urls: ['<all_urls>'] };
+//
+// Listeners are attached on start and detached on stop, filtered to the one tab
+// being recorded. Left attached to <all_urls> they wake this worker for every
+// request the whole browser makes, which is most of what a session restore is.
+// See ADR-0005.
 const forTab = (d) => session && d.tabId === session.tabId;
 
-chrome.webRequest.onBeforeRequest.addListener((d) => {
+const onBefore = (d) => {
   // Requests that never complete (stalled, aborted below the API) would grow
   // pending forever, so cap it the same way entries are capped.
   if (forTab(d) && session.pending.size < MAX_ENTRIES) session.pending.set(d.requestId, d.timeStamp);
-}, filter);
+};
 
 const finish = (d, status, error) => {
   if (!forTab(d)) return;
@@ -37,8 +41,35 @@ const finish = (d, status, error) => {
   });
 };
 
-chrome.webRequest.onCompleted.addListener((d) => finish(d, d.statusCode), filter);
-chrome.webRequest.onErrorOccurred.addListener((d) => finish(d, 0, d.error), filter);
+const onDone = (d) => finish(d, d.statusCode);
+const onFail = (d) => finish(d, 0, d.error);
+
+const watchNetwork = (tabId) => {
+  const filter = { urls: ['<all_urls>'], tabId };
+  chrome.webRequest.onBeforeRequest.addListener(onBefore, filter);
+  chrome.webRequest.onCompleted.addListener(onDone, filter);
+  chrome.webRequest.onErrorOccurred.addListener(onFail, filter);
+};
+
+const unwatchNetwork = () => {
+  chrome.webRequest.onBeforeRequest.removeListener(onBefore);
+  chrome.webRequest.onCompleted.removeListener(onDone);
+  chrome.webRequest.onErrorOccurred.removeListener(onFail);
+};
+
+// Content scripts stay inert until told a recording is running.
+const setCapture = (tabId, on) =>
+  chrome.tabs.sendMessage(tabId, { type: 'capture', on }).catch(() => {});
+
+// Every path that ends a session goes through here: leaving the listeners
+// attached or the page still serializing is the whole cost this avoids.
+const release = () => {
+  if (!session) return;
+  const { tabId } = session;
+  session = null;
+  unwatchNetwork();
+  setCapture(tabId, false);
+};
 
 // --- messaging ---
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -60,7 +91,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'recording-ended') {
-    session = null;
+    release();
     chrome.offscreen.closeDocument().catch(() => {});
   }
 });
@@ -70,7 +101,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (session?.tabId !== tabId) return;
   stop().catch(() => {}).finally(() => {
-    session = null;
+    release();
     chrome.offscreen.closeDocument().catch(() => {});
   });
 });
@@ -104,6 +135,9 @@ async function start() {
     pending: new Map(),
   };
 
+  watchNetwork(tab.id);
+  setCapture(tab.id, true);
+
   try {
     await chrome.offscreen.createDocument({
       url: 'offscreen.html',
@@ -114,8 +148,9 @@ async function start() {
     const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
     if (res?.error) throw new Error(res.error);
   } catch (e) {
-    // Otherwise session + offscreen doc leak and no later stop can ever end them.
-    session = null;
+    // Otherwise session + offscreen doc leak and no later stop can ever end them,
+    // and the listeners stay attached costing every page in the browser.
+    release();
     await chrome.offscreen.closeDocument().catch(() => {});
     throw e;
   }
