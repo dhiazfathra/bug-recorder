@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer-core';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromePath } from '../test/chrome-path.mjs';
+import { chromePath, launchArgs } from '../test/chrome-path.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, '../extension');
@@ -36,27 +36,32 @@ const serve = async () => {
 
 async function run(withExt) {
   const { server, origin } = await serve();
-  const args = ['--no-first-run', '--no-default-browser-check'];
-  if (withExt) args.push(`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`,
-    '--disable-features=DisableLoadExtensionCommandLineSwitch');
+  // The baseline runs the same browser without the extension loaded.
+  const args = withExt
+    ? launchArgs(EXT)
+    : launchArgs(EXT).filter((a) => !a.includes('extension') && !a.includes('LoadExtension'));
 
-  const browser = await puppeteer.launch({ executablePath: exe, headless: false, args });
-  if (withExt) await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
+  // launch() inside the try: an unclosed server on failure would hang the run.
+  let browser;
+  try {
+    browser = await puppeteer.launch({ executablePath: exe, headless: false, args });
+    if (withExt) await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
 
-  // All at once, the way a session restore opens the previous window's tabs.
-  const t0 = Date.now();
-  const pages = await Promise.all(Array.from({ length: TABS }, async (_, i) => {
-    const page = await browser.newPage();
-    await page.goto(`${origin}/p${i}`, { waitUntil: 'networkidle2' });
-    return page;
-  }));
-  const restoreMs = Date.now() - t0;
+    // All at once, the way a session restore opens the previous window's tabs.
+    const t0 = Date.now();
+    const pages = await Promise.all(Array.from({ length: TABS }, async (_, i) => {
+      const page = await browser.newPage();
+      await page.goto(`${origin}/p${i}`, { waitUntil: 'networkidle2' });
+      return page;
+    }));
+    const restoreMs = Date.now() - t0;
 
-  const consoleMs = await Promise.all(pages.map((p) => p.evaluate(() => window.__consoleMs)));
-
-  await browser.close();
-  server.close();
-  return { restoreMs, consoleMs: consoleMs.reduce((a, b) => a + b, 0) / consoleMs.length };
+    const consoleMs = await Promise.all(pages.map((p) => p.evaluate(() => window.__consoleMs)));
+    return { restoreMs, consoleMs: consoleMs.reduce((a, b) => a + b, 0) / consoleMs.length };
+  } finally {
+    await browser?.close();
+    server.close();
+  }
 }
 
 const off = [], on = [];

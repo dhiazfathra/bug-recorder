@@ -11,9 +11,16 @@ on:
 permissions:
   contents: read
 
+# Supersede in-flight runs for the same branch: these jobs drive real browsers
+# and there is no point paying for a run whose commit is already stale.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -31,6 +38,8 @@ jobs:
     # Xvfb. This job is also the performance gate: test/e2e.mjs asserts the
     # extension subscribes to nothing and receives nothing while idle (ADR-0005).
     runs-on: ubuntu-latest
+    # A browser that fails to launch used to hang here until the 6h default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,6 +62,7 @@ jobs:
         run: npm run e2e:setup
 
       - name: Browser tests (includes the idle-cost gate)
+        timeout-minutes: 8
         run: xvfb-run -a npm run test:e2e
 
       # Informational only. Wall-clock on a shared runner is far too noisy to
@@ -60,6 +70,7 @@ jobs:
       # regression. These numbers are for spotting drift by eye over time.
       - name: Benchmark idle cost
         continue-on-error: true
+        timeout-minutes: 8
         run: |
           {
             echo '## Idle cost'

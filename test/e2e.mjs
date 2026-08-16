@@ -16,7 +16,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { chromePath } from './chrome-path.mjs';
+import { chromePath, launchArgs } from './chrome-path.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildReport } = require('../extension/report.js');
@@ -42,21 +42,18 @@ async function withBrowser(fn) {
   await new Promise((r) => server.listen(0, r));
   const origin = `http://localhost:${server.address().port}`;
 
-  const browser = await puppeteer.launch({
-    executablePath: chromePath(),
-    headless: false, // extensions + tab capture need a real browser
-    args: [
-      `--disable-extensions-except=${EXT}`,
-      `--load-extension=${EXT}`,
-      // Chrome 137+ ignores --load-extension unless this feature is disabled.
-      '--disable-features=DisableLoadExtensionCommandLineSwitch',
-      '--no-first-run', '--no-default-browser-check',
-    ],
-  });
+  // launch() must be inside the try: if it throws, an unclosed server keeps the
+  // event loop alive and the run hangs instead of reporting the failure.
+  let browser;
   try {
+    browser = await puppeteer.launch({
+      executablePath: chromePath(),
+      headless: false, // extensions + tab capture need a real browser
+      args: launchArgs(EXT),
+    });
     return await fn({ browser, origin });
   } finally {
-    await browser.close();
+    await browser?.close();
     server.close();
   }
 }

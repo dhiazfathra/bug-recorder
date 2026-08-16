@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { chromePath } from '../test/chrome-path.mjs';
+import { chromePath, launchArgs } from '../test/chrome-path.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildReport } = require('../extension/report.js');
@@ -61,10 +61,8 @@ const origin = `http://localhost:${server.address().port}`;
 const browser = await puppeteer.launch({
   executablePath: exe,
   headless: false,
-  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`,
-    '--disable-features=DisableLoadExtensionCommandLineSwitch',
-    '--no-first-run', '--no-default-browser-check', '--window-size=1200,860'],
-});
+  args: [...launchArgs(EXT), '--window-size=1200,860'],
+}).catch((e) => { server.close(); throw e; });
 
 const target = await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
 const extId = new URL(target.url()).host;
