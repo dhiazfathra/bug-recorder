@@ -13,16 +13,24 @@ const paint = (recording, name) => {
     : 'Records the active tab: video, console and network log.';
 };
 
-chrome.runtime.sendMessage({ type: 'status' }).then((r) => paint(r?.recording, r?.description));
+chrome.runtime.sendMessage({ type: 'status' })
+  .then((r) => paint(r?.recording, r?.description), (e) => { hint.textContent = String(e); });
 
 toggle.addEventListener('click', async () => {
   toggle.disabled = true;
-  const { recording } = await chrome.runtime.sendMessage({ type: 'status' });
-  const res = await chrome.runtime.sendMessage(
-    recording ? { type: 'stop', description: description.value } : { type: 'start' }
-  );
-  toggle.disabled = false;
-  if (res?.error) return (hint.textContent = res.error);
-  if (recording) window.close();
-  else paint(true, res?.description);
+  try {
+    // A dead service worker rejects rather than answering; without this the
+    // button would stay disabled with nothing on screen to explain why.
+    const { recording } = await chrome.runtime.sendMessage({ type: 'status' });
+    const res = await chrome.runtime.sendMessage(
+      recording ? { type: 'stop', description: description.value } : { type: 'start' }
+    );
+    if (res?.error) hint.textContent = res.error;
+    else if (recording) window.close();
+    else paint(true, res?.description);
+  } catch (e) {
+    hint.textContent = String(e);
+  } finally {
+    toggle.disabled = false;
+  }
 });
