@@ -182,3 +182,46 @@ test('a generated report renders its video and both log kinds', { timeout: 60000
     assert.match(body, /e2e report/, 'description rendered');
   });
 });
+
+// The regression guard for ADR-0005. Deliberately counts events rather than
+// milliseconds: wall-clock on a shared CI runner is too noisy to threshold, but
+// "the idle worker was woken zero times" is exact and is the actual mechanism
+// that made Chrome slow. bench/idle-cost.mjs measures the milliseconds.
+test('an idle extension costs the browser nothing', { timeout: 60000 }, async () => {
+  await withBrowser(async ({ browser, origin }) => {
+    const target = await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
+    const sw = await target.createCDPSession();
+    await sw.send('Runtime.enable');
+
+    // Ask Chrome whether the extension is subscribed at all. Counting events
+    // with our own <all_urls> listener would measure the probe, not the
+    // extension: registering one guarantees the worker wakes for every request.
+    const subscribed = () => swEval(sw, `[
+      chrome.webRequest.onBeforeRequest.hasListeners(),
+      chrome.webRequest.onCompleted.hasListeners(),
+      chrome.webRequest.onErrorOccurred.hasListeners(),
+    ]`);
+
+    assert.deepStrictEqual(await subscribed(), [false, false, false],
+      'an idle worker must not be subscribed to webRequest: on <all_urls> it is woken for ' +
+      'every request the whole browser makes, which is most of what a session restore is');
+
+    // Console messages cost nothing to observe, so count those directly.
+    await swEval(sw, `self.__msgs = 0;
+      chrome.runtime.onMessage.addListener((m) => { if (m.type === 'log') self.__msgs++; });
+      true`);
+
+    // Browse several pages that log and fetch, exactly as a session restore would.
+    for (let i = 0; i < 4; i++) {
+      const page = await browser.newPage();
+      await page.goto(`${origin}/p${i}`, { waitUntil: 'networkidle2' });
+      await page.close();
+    }
+    await new Promise((r) => setTimeout(r, 500)); // let any stragglers arrive
+
+    assert.strictEqual(await swEval(sw, 'self.__msgs'), 0,
+      'idle pages must not serialize and post their console calls to the worker');
+    assert.deepStrictEqual(await subscribed(), [false, false, false],
+      'still unsubscribed after browsing');
+  });
+});

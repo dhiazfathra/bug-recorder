@@ -83,6 +83,12 @@ firing even when the download is cancelled). Those offscreen tests fake `MediaRe
 `getUserMedia`, `FileReader` and `URL.createObjectURL` — they prove the control flow, **not that
 Chrome actually records a tab**.
 
+CI runs the linter and unit tests on one job, and the browser tests headful under Xvfb on another.
+The browser job is also the performance gate: it asserts the extension subscribes to nothing and
+receives nothing while idle, which is the regression that made Chrome slow to start (ADR-0005). It
+also prints `npm run bench` into the job summary, but does not fail on those timings — wall-clock on
+a shared runner is too noisy to threshold.
+
 `npm run test:e2e` installs the extension into a real (pinned) Chrome and checks what unit tests
 cannot: that the manifest loads, that the MAIN-world console patch and relay content script really
 deliver entries to the service worker on a live page, and that a generated report renders its video

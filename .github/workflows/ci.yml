@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  browser:
+    # Extensions and tab capture need a real browser, so these run headful under
+    # Xvfb. This job is also the performance gate: test/e2e.mjs asserts the
+    # extension subscribes to nothing and receives nothing while idle (ADR-0005).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Keyed on the pinned version in package.json, so a version bump misses
+      # the cache and re-downloads instead of silently testing the old browser.
+      - name: Cache Chrome for Testing
+        id: chrome-cache
+        uses: actions/cache@v4
+        with:
+          path: .chrome-for-testing
+          key: chrome-${{ runner.os }}-${{ hashFiles('package.json') }}
+      - if: steps.chrome-cache.outputs.cache-hit != 'true'
+        run: npm run e2e:setup
+
+      - name: Browser tests (includes the idle-cost gate)
+        run: xvfb-run -a npm run test:e2e
+
+      # Informational only. Wall-clock on a shared runner is far too noisy to
+      # fail a build on; the assertions above are what actually guard the
+      # regression. These numbers are for spotting drift by eye over time.
+      - name: Benchmark idle cost
+        continue-on-error: true
+        run: |
+          {
+            echo '## Idle cost'
+            echo
+            echo 'Informational — CI timings are noisy. The gate is the idle assertion in the browser tests.'
+            echo
+            echo '```'
+            xvfb-run -a npm run bench --silent 2>&1 || echo 'benchmark did not complete'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
