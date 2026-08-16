@@ -114,7 +114,9 @@ const nameFor = (tab) => {
   const title = tab.title?.trim();
   if (title) return `Bug on ${title}`;
   try {
-    return `Bug on ${new URL(tab.url).hostname}`;
+    // valid URLs can still have no hostname: about:blank, data:, file:
+    const { hostname } = new URL(tab.url);
+    return hostname ? `Bug on ${hostname}` : 'Untitled bug';
   } catch {
     return 'Untitled bug';
   }
@@ -158,16 +160,25 @@ async function start() {
 
 async function stop(description) {
   if (!session) return;
-  await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    type: 'stop',
-    report: {
-      description: description?.trim() || session.description,
-      url: session.url,
-      startedAt: session.startedAt,
-      durationMs: Date.now() - session.startedAt,
-      userAgent: navigator.userAgent,
-      entries: session.entries,
-    },
-  });
+  try {
+    await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'stop',
+      report: {
+        description: description?.trim() || session.description,
+        url: session.url,
+        startedAt: session.startedAt,
+        durationMs: Date.now() - session.startedAt,
+        userAgent: navigator.userAgent,
+        entries: session.entries,
+      },
+    });
+  } catch (e) {
+    // Normally 'recording-ended' releases the session once the report is saved.
+    // If the offscreen document never answers that never arrives, leaving the
+    // listeners attached to every page and blocking the next start.
+    release();
+    await chrome.offscreen.closeDocument().catch(() => {});
+    throw e;
+  }
 }

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { chromePath } from '../test/chrome-path.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildReport } = require('../extension/report.js');
@@ -18,12 +19,7 @@ const { buildReport } = require('../extension/report.js');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, '../extension');
 const OUT = path.resolve(here, '../docs/evidence');
-const root = path.resolve(here, '../.chrome-for-testing/chrome');
-const version = fs.readdirSync(root).find((d) => !d.startsWith('.'));
-const platform = fs.readdirSync(path.join(root, version))[0];
-const exe = path.join(root, version, platform, ...(platform.includes('mac')
-  ? ['Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing']
-  : [platform.includes('win') ? 'chrome.exe' : 'chrome']));
+const exe = chromePath();
 
 const FIXTURE = `<!doctype html><meta charset="utf-8"><title>Checkout — Acme Store</title>
 <style>body{font:15px system-ui;margin:0;padding:2rem;max-width:40rem}

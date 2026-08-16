@@ -5,16 +5,12 @@
 import puppeteer from 'puppeteer-core';
 import http from 'node:http';
 import path from 'node:path';
-import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { chromePath } from '../test/chrome-path.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, '../extension');
-const root = path.resolve(here, '../.chrome-for-testing/chrome');
-const version = fs.readdirSync(root).find((d) => !d.startsWith('.'));
-const platform = fs.readdirSync(path.join(root, version))[0];
-const exe = path.join(root, version, platform,
-  'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
+const exe = chromePath();
 
 const LOGS = 300, REQS = 40, TABS = 12;
 

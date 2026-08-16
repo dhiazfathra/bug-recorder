@@ -14,27 +14,15 @@ import assert from 'node:assert';
 import puppeteer from 'puppeteer-core';
 import http from 'node:http';
 import path from 'node:path';
-import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { chromePath } from './chrome-path.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildReport } = require('../extension/report.js');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXT = path.resolve(here, '../extension');
-
-// The install dir also holds a .metadata entry, so pick the versioned one.
-const chromePath = () => {
-  const root = path.resolve(here, '../.chrome-for-testing/chrome');
-  const version = fs.existsSync(root) && fs.readdirSync(root).find((d) => !d.startsWith('.'));
-  if (!version) throw new Error('Chrome for Testing missing — run: npm run e2e:setup');
-  const platform = fs.readdirSync(path.join(root, version))[0];
-  const binary = platform.includes('mac')
-    ? ['Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing']
-    : [platform.includes('win') ? 'chrome.exe' : 'chrome'];
-  return path.join(root, version, platform, ...binary);
-};
 
 const FIXTURE = `<!doctype html><title>Fixture</title><h1>fixture page</h1><script>
   console.log('plain log', { a: 1 });

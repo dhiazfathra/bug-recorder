@@ -30,7 +30,11 @@ function loadBackground(overrides = {}) {
     },
     runtime: {
       onMessage: { addListener: (fn) => { listeners.onMessage = fn; } },
-      sendMessage: (msg) => { sent.push(msg); return Promise.resolve(overrides.startResponse); },
+      sendMessage: (msg) => {
+        sent.push(msg);
+        if (msg.type === 'stop' && overrides.stopRejects) return Promise.reject(new Error('offscreen gone'));
+        return Promise.resolve(overrides.startResponse);
+      },
     },
     tabs: {
       onRemoved: { addListener: (fn) => { listeners.onRemoved = fn; } },
@@ -196,6 +200,25 @@ test('a titleless page falls back to its hostname, then to a placeholder', async
   assert.strictEqual(
     (await loadBackground({ tab: { title: '', url: 'not a url' } }).start()).description,
     'Untitled bug');
+  // parses fine, but has no hostname to name the report after
+  for (const url of ['about:blank', 'data:text/html,<p>hi', 'file:///tmp/x.html']) {
+    assert.strictEqual((await loadBackground({ tab: { title: '', url } }).start()).description,
+      'Untitled bug', `${url} must not produce "Bug on "`);
+  }
+});
+
+test('a failed stop releases the session instead of stranding the listeners', async () => {
+  const bg = loadBackground({ stopRejects: true });
+  await bg.start();
+
+  await assert.rejects(() => new Promise((resolve, reject) => {
+    bg.listeners.onMessage({ type: 'stop' }, {}, (r) => (r.error ? reject(new Error(r.error)) : resolve(r)));
+  }), /offscreen gone/);
+
+  assert.strictEqual((await bg.getStatus()).recording, false);
+  assert.deepStrictEqual(Object.values(bg.attached).filter(Boolean), [],
+    'a failed stop must not leave listeners on every page');
+  assert.deepStrictEqual(bg.capture.at(-1), { tabId: 7, on: false });
 });
 
 test('a name edited in the popup replaces the generated one', async () => {
