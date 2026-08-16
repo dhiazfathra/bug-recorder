@@ -20,7 +20,7 @@ function loadBackground(overrides = {}) {
     },
     tabs: {
       onRemoved: { addListener: (fn) => { listeners.onRemoved = fn; } },
-      query: () => Promise.resolve([{ id: 7, url: 'https://example.com' }]),
+      query: () => Promise.resolve([{ id: 7, url: 'https://example.com', ...overrides.tab }]),
     },
     tabCapture: { getMediaStreamId: () => Promise.resolve('stream-1') },
     offscreen: {
@@ -37,10 +37,14 @@ function loadBackground(overrides = {}) {
   });
 
   const start = (opts = {}) => new Promise((resolve) => {
-    listeners.onMessage({ type: 'start', description: 'bug', ...opts }, {}, resolve);
+    listeners.onMessage({ type: 'start', ...opts }, {}, resolve);
   });
 
-  return { listeners, getStatus, closeDocumentCalls, sent, start };
+  const stopReport = (description) => new Promise((resolve) => {
+    listeners.onMessage({ type: 'stop', description }, {}, resolve);
+  }).then(() => sent.find((m) => m.type === 'stop').report);
+
+  return { listeners, getStatus, closeDocumentCalls, sent, start, stopReport };
 }
 
 test('tab closed mid-recording clears session so next start is not blocked', async () => {
@@ -105,6 +109,38 @@ test('failed createDocument clears session', async () => {
 
   assert.match(res.error, /boom/);
   assert.strictEqual((await bg.getStatus()).recording, false);
+});
+
+test('the name is generated from the page title, no typing required', async () => {
+  const bg = loadBackground({ tab: { title: '  Checkout — Acme  ' } });
+
+  assert.strictEqual((await bg.start()).description, 'Bug on Checkout — Acme');
+  assert.strictEqual((await bg.getStatus()).description, 'Bug on Checkout — Acme',
+    'the popup can read the generated name back to prefill its field');
+  assert.strictEqual((await bg.stopReport()).description, 'Bug on Checkout — Acme');
+});
+
+test('a titleless page falls back to its hostname, then to a placeholder', async () => {
+  assert.strictEqual((await loadBackground().start()).description, 'Bug on example.com');
+  assert.strictEqual(
+    (await loadBackground({ tab: { title: '', url: 'not a url' } }).start()).description,
+    'Untitled bug');
+});
+
+test('a name edited in the popup replaces the generated one', async () => {
+  const bg = loadBackground({ tab: { title: 'Checkout' } });
+  await bg.start();
+
+  assert.strictEqual((await bg.stopReport('Coupon field rejects valid codes')).description,
+    'Coupon field rejects valid codes');
+});
+
+test('a blank or whitespace edit keeps the generated name', async () => {
+  const bg = loadBackground({ tab: { title: 'Checkout' } });
+  await bg.start();
+
+  assert.strictEqual((await bg.stopReport('   ')).description, 'Bug on Checkout',
+    'clearing the field must not produce an unnamed report');
 });
 
 test('onRemoved for an unrelated tab does not touch an active session', async () => {

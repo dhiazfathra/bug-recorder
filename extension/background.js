@@ -47,15 +47,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
   if (msg.type === 'status') {
-    sendResponse({ recording: !!session });
+    sendResponse({ recording: !!session, description: session?.description });
     return true;
   }
   if (msg.type === 'start') {
-    start(msg.description).then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: String(e) }));
+    start().then(() => sendResponse({ ok: true, description: session.description }),
+      (e) => sendResponse({ error: String(e) }));
     return true;
   }
   if (msg.type === 'stop') {
-    stop().then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: String(e) }));
+    stop(msg.description).then(() => sendResponse({ ok: true }), (e) => sendResponse({ error: String(e) }));
     return true;
   }
   if (msg.type === 'recording-ended') {
@@ -75,7 +76,20 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // --- lifecycle ---
-async function start(description) {
+
+// Named from the page so a report is identifiable without anyone typing
+// anything; the popup lets you rewrite it before saving.
+const nameFor = (tab) => {
+  const title = tab.title?.trim();
+  if (title) return `Bug on ${title}`;
+  try {
+    return `Bug on ${new URL(tab.url).hostname}`;
+  } catch {
+    return 'Untitled bug';
+  }
+};
+
+async function start() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error('No active tab');
 
@@ -84,7 +98,7 @@ async function start(description) {
   session = {
     tabId: tab.id,
     startedAt: Date.now(),
-    description,
+    description: nameFor(tab),
     url: tab.url,
     entries: [],
     pending: new Map(),
@@ -107,13 +121,13 @@ async function start(description) {
   }
 }
 
-async function stop() {
+async function stop(description) {
   if (!session) return;
   await chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'stop',
     report: {
-      description: session.description,
+      description: description?.trim() || session.description,
       url: session.url,
       startedAt: session.startedAt,
       durationMs: Date.now() - session.startedAt,

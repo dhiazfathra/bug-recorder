@@ -14,8 +14,10 @@ created them, so the offscreen document cannot use them.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, select the
    `extension/` folder.
 3. Pin the extension, open the page with the bug, click the icon.
-4. Type what the bug is, click **Start recording**, reproduce it.
-5. Click the icon again, **Stop and save report**. Chrome asks where to save
+4. Click **Start recording** and reproduce the bug. The report is named after the page
+   automatically — nothing to type.
+5. Click the icon again. Rename the report in the box if the generated name is not clear enough,
+   then **Stop and save report**. Chrome asks where to save
    `bug-report-<timestamp>.html`.
 6. Open that file, or send it to whoever needs to fix the bug.
 
@@ -26,7 +28,7 @@ created them, so the offscreen document cannot use them.
 | Video | The recorded tab, `video/webm`, embedded as a data URL |
 | Console | `console.log/info/warn/debug/error`, uncaught errors, unhandled rejections — timestamped against the recording |
 | Network | Every request the tab made: method, URL, resource type, status (or error), duration |
-| Metadata | Page URL, start time, duration, user agent, your description |
+| Metadata | Page URL, start time, duration, user agent, the report name |
 
 The right-hand panel filters between All / Console / Network. Timestamps are relative to the start of
 the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player.
