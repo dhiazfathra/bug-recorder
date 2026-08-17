@@ -1,0 +1,19 @@
+{
+  "name": "bug-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that records a tab as video with its console and network logs.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "eslint .",
+    "test:e2e": "node --test test/e2e.mjs",
+    "bench": "node bench/idle-cost.mjs",
+    "e2e:setup": "npx @puppeteer/browsers install chrome@152.0.7977.42 --path ./.chrome-for-testing",
+    "evidence": "node bench/evidence.mjs"
+  },
+  "devDependencies": {
+    "eslint": "~9.17.0",
+    "globals": "^15.14.0",
+    "puppeteer-core": "^25.7.0"
+  }
+}

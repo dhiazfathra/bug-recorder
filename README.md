@@ -1,0 +1,137 @@
+# Bug Recorder
+
+A minimal, backend-free recreation of [Jam](https://jam.dev): a Chrome extension that records the
+active tab as video while collecting its console and network logs, then exports **one self-contained
+HTML file** containing all three. Open it in any browser, share it however you already share files —
+no account, no server, no extension needed on the other end.
+
+## Quick start
+
+Chrome 116 or newer is required — earlier versions bind `tabCapture` stream IDs to the frame that
+created them, so the offscreen document cannot use them.
+
+1. Clone the repo.
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, select the
+   `extension/` folder.
+3. Pin the extension, open the page with the bug, click the icon.
+4. Click **Start recording** and reproduce the bug. The report is named after the page
+   automatically — nothing to type.
+5. Click the icon again. Rename the report in the box if the generated name is not clear enough,
+   then **Stop and save report**. Chrome asks where to save
+   `bug-report-<timestamp>.html`.
+6. Open that file, or send it to whoever needs to fix the bug.
+
+## What the report contains
+
+| | |
+|---|---|
+| Video | The recorded tab, `video/webm`, embedded as a data URL |
+| Console | `console.log/info/warn/debug/error`, uncaught errors, unhandled rejections made while recording — timestamped against the recording |
+| Network | Requests the tab made while recording: method, URL, resource type, status (or error), duration |
+| Metadata | Page URL, start time, duration, user agent, the report name |
+
+The right-hand panel filters between All / Console / Network. Timestamps are relative to the start of
+the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player.
+
+**A report is not a complete record.** Only what happened between Start and Stop is captured, and the
+log is capped at 5000 entries across console and network combined. Past that the *newest* entries are
+dropped, not the oldest, so a very noisy recording keeps its beginning and silently loses its end. A
+report that ends abruptly is the signal you hit the cap.
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `npm install` | Install the dev dependencies (ESLint only — the extension itself has none) |
+| `npm ci` | Install them exactly as pinned in `package-lock.json` |
+| `npm test` | Run all automated tests |
+| `npm run e2e:setup` | Download Chrome for Testing 152.0.7977.42 (once, before `test:e2e`) |
+| `npm run test:e2e` | Run the browser tests against a really-installed extension |
+| `npm run bench` | Measure what the extension costs while idle (needs `e2e:setup` too) |
+| `npm run evidence` | Regenerate `docs/evidence/` (needs `e2e:setup` and `ffmpeg` on PATH) |
+| `npm run lint` | Run ESLint |
+
+## Architecture
+
+```
+popup.js  ──start/stop──▶  background.js (service worker)
+                            │  ├─ chrome.webRequest ──▶ network log
+                            │  ├─ relay.js ◀── inject.js (MAIN world console patch)
+                            │  └─ chrome.tabCapture.getMediaStreamId
+                            ▼
+                          offscreen.js  ── MediaRecorder ──▶ report.js ──▶ .html download
+```
+
+Seven files, no build step, no runtime dependencies. The reasoning behind each piece is in
+[`docs/decisions/`](docs/decisions):
+
+- [ADR-0001](docs/decisions/0001-no-backend-self-contained-html-report.md) — no backend; the report file *is* the shareable link
+- [ADR-0002](docs/decisions/0002-tab-capture-via-offscreen-document.md) — `tabCapture` + offscreen document for video under MV3
+- [ADR-0003](docs/decisions/0003-log-capture-console-patch-plus-webrequest.md) — console via MAIN-world patch, network via `webRequest`, and why not `chrome.debugger`
+- [ADR-0004](docs/decisions/0004-scope-cut-from-jam.md) — what was cut from Jam, and how to add it back
+- [ADR-0005](docs/decisions/0005-idle-cost-nothing-runs-until-recording.md) — why nothing runs until you press Start
+
+## Cost when you are not recording
+
+An installed extension that watches every request and every `console.log` in every tab makes the
+whole browser slower, most visibly when a session restore opens many tabs at once. This one is
+inert until you press Start: `webRequest` listeners are attached only while recording and scoped to
+the single recorded tab, and the console patch checks one boolean and calls through. Measured with
+`npm run bench` — 12 tabs opened simultaneously went from **+42% slower to no measurable
+overhead**. What remains is ~7us per `console.log`, from the inert wrapper. ADR-0005 has the
+numbers and the trade-offs.
+
+## Testing status
+
+`npm test` covers the report builder, the service-worker log collection and lifecycle, console
+serialization, and the offscreen control flow (cleanup on a failed recorder start, `recording-ended`
+firing even when the download is cancelled). Those offscreen tests fake `MediaRecorder`,
+`getUserMedia`, `FileReader` and `URL.createObjectURL` — they prove the control flow, **not that
+Chrome actually records a tab**.
+
+CI runs the linter and unit tests on one job, and the browser tests headful under Xvfb on another.
+The browser job is also the performance gate: it asserts the extension subscribes to nothing and
+receives nothing while idle, which is the regression that made Chrome slow to start (ADR-0005). It
+also prints `npm run bench` into the job summary, but does not fail on those timings — wall-clock on
+a shared runner is too noisy to threshold.
+
+`npm run test:e2e` installs the extension into a real (pinned) Chrome and checks what unit tests
+cannot: that the manifest loads, that the MAIN-world console patch and relay content script really
+deliver entries to the service worker on a live page, and that a generated report renders its video
+element and both log kinds. Run `npm run e2e:setup` once first; it downloads the exact build the
+suite is pinned to, **Chrome for Testing 152.0.7977.42**, so every machine runs the same browser.
+The pin also matters for a second reason: Chrome 137+ ignores `--load-extension` unless
+`--disable-features=DisableLoadExtensionCommandLineSwitch` is passed, and regular Chrome no longer
+honours that escape hatch at all.
+
+**The video capture path still has no automated coverage.** `chrome.tabCapture` only issues a stream
+after the extension has been *invoked* on the tab — the `activeTab` grant — and that invocation must
+come from a genuine click on the toolbar icon. CDP cannot synthesize input into browser chrome, so no
+harness can grant it; `getMediaStreamId` fails with *"Extension has not been invoked for the current
+page"*. After changing `offscreen.js` or the `tabCapture` handshake, record something by hand.
+
+## Known limits
+
+- **Active tab only.** No screen or window capture, no audio.
+- **No response bodies or headers** in the network log — status, timing, and resource type only.
+- **Long recordings produce large files.** Base64 adds ~33% on top of the video; this targets
+  minute-scale recordings, not hour-long sessions.
+- **Console capture starts when you press Start.** Nothing before that is kept — the page is not
+  serializing anything until then (ADR-0005). Pages already open when the extension is installed or
+  reloaded need a refresh before they can be recorded at all.
+- **The log is capped at 5000 entries** across console and network combined. Beyond that, further
+  entries are dropped rather than replacing older ones.
+- **A hard service-worker termination loses the log.** Entries are held in memory in the service
+  worker; if Chrome kills it mid-recording they are gone, and a report saved afterwards will look
+  complete while missing them. [ADR-0002](docs/decisions/0002-tab-capture-via-offscreen-document.md)
+  accepts this deliberately rather than persisting state, and records the trigger to revisit.
+- **Reports are unredacted.** The video and logs contain whatever was on screen and in the console,
+  including tokens and personal data. Check a report before sending it.
+
+## Permissions
+
+`activeTab` is what lets `tabCapture` hand out a stream: Chrome only allows capture after you invoke
+the extension by clicking its toolbar icon, and without this permission that invocation grants
+nothing and recording fails to start. `<all_urls>` plus `webRequest` are needed to observe console
+and network activity on whichever page you are debugging. Nothing is recorded until you press Start, only the recorded tab is observed, and
+nothing ever leaves your machine — the extension makes no network requests of its own.

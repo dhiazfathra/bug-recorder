@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here writes to the repository. Actions are pinned to commit SHAs so a
+# moved tag cannot change what runs, and checkout is told not to leave a
+# credential behind for npm lifecycle scripts to find.
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same branch: these jobs drive real browsers
+# and there is no point paying for a run whose commit is already stale.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  browser:
+    # Extensions and tab capture need a real browser, so these run headful under
+    # Xvfb. This job is also the performance gate: test/e2e.mjs asserts the
+    # extension subscribes to nothing and receives nothing while idle (ADR-0005).
+    runs-on: ubuntu-latest
+    # A browser that fails to launch used to hang here until the 6h default.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Keyed on the pinned version in package.json, so a version bump misses
+      # the cache and re-downloads instead of silently testing the old browser.
+      - name: Cache Chrome for Testing
+        id: chrome-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .chrome-for-testing
+          key: chrome-${{ runner.os }}-${{ hashFiles('package.json') }}
+      - if: steps.chrome-cache.outputs.cache-hit != 'true'
+        run: npm run e2e:setup
+
+      - name: Browser tests (includes the idle-cost gate)
+        timeout-minutes: 8
+        run: xvfb-run -a npm run test:e2e
+
+      # Informational only. Wall-clock on a shared runner is far too noisy to
+      # fail a build on; the assertions above are what actually guard the
+      # regression. These numbers are for spotting drift by eye over time.
+      - name: Benchmark idle cost
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          {
+            echo '## Idle cost'
+            echo
+            echo 'Informational — CI timings are noisy. The gate is the idle assertion in the browser tests.'
+            echo
+            echo '```'
+            xvfb-run -a npm run bench --silent 2>&1 || echo 'benchmark did not complete'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

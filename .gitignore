@@ -141,3 +141,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+.tokensave
+
+# Chrome for Testing, downloaded by npm run e2e:setup
+.chrome-for-testing/
