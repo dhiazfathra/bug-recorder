@@ -26,12 +26,17 @@ created them, so the offscreen document cannot use them.
 | | |
 |---|---|
 | Video | The recorded tab, `video/webm`, embedded as a data URL |
-| Console | `console.log/info/warn/debug/error`, uncaught errors, unhandled rejections — timestamped against the recording |
-| Network | Every request the tab made: method, URL, resource type, status (or error), duration |
+| Console | `console.log/info/warn/debug/error`, uncaught errors, unhandled rejections made while recording — timestamped against the recording |
+| Network | Requests the tab made while recording: method, URL, resource type, status (or error), duration |
 | Metadata | Page URL, start time, duration, user agent, the report name |
 
 The right-hand panel filters between All / Console / Network. Timestamps are relative to the start of
 the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player.
+
+**A report is not a complete record.** Only what happened between Start and Stop is captured, and the
+log is capped at 5000 entries across console and network combined. Past that the *newest* entries are
+dropped, not the oldest, so a very noisy recording keeps its beginning and silently loses its end. A
+report that ends abruptly is the signal you hit the cap.
 
 ## Commands
 
@@ -114,6 +119,12 @@ page"*. After changing `offscreen.js` or the `tabCapture` handshake, record some
 - **Console capture starts when you press Start.** Nothing before that is kept — the page is not
   serializing anything until then (ADR-0005). Pages already open when the extension is installed or
   reloaded need a refresh before they can be recorded at all.
+- **The log is capped at 5000 entries** across console and network combined. Beyond that, further
+  entries are dropped rather than replacing older ones.
+- **A hard service-worker termination loses the log.** Entries are held in memory in the service
+  worker; if Chrome kills it mid-recording they are gone, and a report saved afterwards will look
+  complete while missing them. [ADR-0002](docs/decisions/0002-tab-capture-via-offscreen-document.md)
+  accepts this deliberately rather than persisting state, and records the trigger to revisit.
 - **Reports are unredacted.** The video and logs contain whatever was on screen and in the console,
   including tokens and personal data. Check a report before sending it.
 

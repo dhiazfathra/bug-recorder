@@ -116,6 +116,22 @@ test('pending map is capped so stalled requests cannot grow without bound', asyn
   assert.deepStrictEqual(await stopEntries(bg), []);
 });
 
+test('the entry log is capped, keeping the earliest entries', async () => {
+  const bg = loadBackground();
+  await bg.start();
+
+  for (let i = 0; i < 5100; i++) {
+    bg.listeners.onMessage({ type: 'log', entry: { kind: 'console', level: 'log', text: `e${i}`, t: 1000 } },
+      { tab: { id: 7 } }, () => {});
+  }
+
+  const entries = await stopEntries(bg);
+  assert.strictEqual(entries.length, 5000, 'capped, so a noisy page cannot grow the buffer forever');
+  // README documents this: the newest are dropped, the beginning is kept.
+  assert.strictEqual(entries[0].text, 'e0');
+  assert.strictEqual(entries.at(-1).text, 'e4999');
+});
+
 test('failed offscreen start clears session and closes the document', async () => {
   const bg = loadBackground({ startResponse: { error: 'NotAllowedError' } });
   const res = await bg.start();
