@@ -53,7 +53,8 @@ async function withBrowser(fn) {
     });
     return await fn({ browser, origin });
   } finally {
-    await browser?.close();
+    // close() must not be able to skip the server close, or the run hangs
+    await browser?.close().catch(() => {});
     server.close();
   }
 }

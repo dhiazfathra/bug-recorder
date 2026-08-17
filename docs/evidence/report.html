@@ -24,21 +24,21 @@
   <video controls src=""></video>
   <h1>Bug on Checkout — Acme Store</h1>
   <dl>
-    <dt>URL</dt><dd>http://localhost:50616/checkout</dd>
-    <dt>Recorded</dt><dd>2026-08-16T11:21:38.628Z</dd>
-    <dt>Duration</dt><dd>4s</dd>
+    <dt>URL</dt><dd>http://localhost:65342/checkout</dd>
+    <dt>Recorded</dt><dd>2026-08-16T22:35:41.595Z</dd>
+    <dt>Duration</dt><dd>1s</dd>
     <dt>User agent</dt><dd>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36</dd>
   </dl>
 </section>
 <section>
   <nav>
-    <button data-filter="all" aria-pressed="true">All</button>
-    <button data-filter="console" aria-pressed="false">Console</button>
-    <button data-filter="network" aria-pressed="false">Network</button>
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="console" aria-pressed="false">Console</button>
+    <button type="button" data-filter="network" aria-pressed="false">Network</button>
   </nav>
   <ul id="entries"></ul>
 </section>
-<script id="data" type="application/json">{"description":"Bug on Checkout — Acme Store","url":"http://localhost:50616/checkout","startedAt":1786879298628,"durationMs":4200,"userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36","video":"","entries":[{"kind":"console","level":"info","text":"applying coupon SPRING20","t":1786879298642,"at":14},{"kind":"console","level":"error","text":"coupon rejected {\"code\":\"SPRING20\",\"status\":422}","t":1786879298650,"at":22},{"kind":"network","method":"GET","url":"http://localhost:50616/api/coupon?code=SPRING20","resourceType":"fetch","status":422,"durationMs":38,"at":1500}]}</script>
+<script id="data" type="application/json">{"description":"Bug on Checkout — Acme Store","url":"http://localhost:65342/checkout","startedAt":1786919741595,"durationMs":990,"userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36","video":"","entries":[{"kind":"console","level":"info","text":"applying coupon SPRING20","t":1786919741652,"at":57},{"kind":"network","t":1786919741654.862,"method":"GET","url":"http://localhost:65342/api/coupon?code=SPRING20","resourceType":"xmlhttprequest","status":422,"durationMs":5,"at":59.862060546875},{"kind":"console","level":"error","text":"coupon rejected {\"code\":\"SPRING20\",\"status\":422}","t":1786919741661,"at":66}]}</script>
 <script>
   const entries = JSON.parse(document.getElementById('data').textContent).entries || [];
   const list = document.getElementById('entries');

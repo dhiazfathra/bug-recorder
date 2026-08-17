@@ -219,6 +219,8 @@ test('a failed stop releases the session instead of stranding the listeners', as
   assert.deepStrictEqual(Object.values(bg.attached).filter(Boolean), [],
     'a failed stop must not leave listeners on every page');
   assert.deepStrictEqual(bg.capture.at(-1), { tabId: 7, on: false });
+  assert.strictEqual(bg.closeDocumentCalls.length, 1,
+    'a failed stop must close the offscreen document too');
 });
 
 test('a name edited in the popup replaces the generated one', async () => {

@@ -1,7 +1,13 @@
 // Produces the screenshots and screen recording attached to the PR.
-// Everything here comes from the real extension running in a real browser: the
-// popup is the extension's own page, and the report is built from entries the
-// extension's content scripts actually collected. Nothing is mocked up.
+//
+// No entry in the report is written by hand. The popup is the extension's own
+// page as Chrome renders it; the console entries travel the extension's real
+// inject.js -> relay.js -> service worker path; the network entries are read
+// from chrome.webRequest with the same per-tab filter background.js uses,
+// wired here because the extension only attaches those listeners inside a
+// recording session and starting one needs a genuine toolbar click.
+//
+// Requires ffmpeg on PATH (to turn the screencast into a GIF).
 //
 //   npm run evidence
 import puppeteer from 'puppeteer-core';
@@ -58,81 +64,108 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const origin = `http://localhost:${server.address().port}`;
 
-const browser = await puppeteer.launch({
-  executablePath: exe,
-  headless: false,
-  args: [...launchArgs(EXT), '--window-size=1200,860'],
-}).catch((e) => { server.close(); throw e; });
+// Everything runs inside try/finally: a failure anywhere below would otherwise
+// leave a headful Chrome and an open server holding the event loop open, and
+// the script would hang instead of reporting what went wrong.
+let browser;
+try {
+  browser = await puppeteer.launch({
+    executablePath: exe,
+    headless: false,
+    args: [...launchArgs(EXT), '--window-size=1200,860'],
+  });
 
-const target = await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
-const extId = new URL(target.url()).host;
-const sw = await target.createCDPSession();
-await sw.send('Runtime.enable');
+  const target = await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20000 });
+  const extId = new URL(target.url()).host;
+  const sw = await target.createCDPSession();
+  await sw.send('Runtime.enable');
 
-// --- 1. the extension's own popup, exactly as Chrome renders it ---
-const popup = await browser.newPage();
-// the popup is 300px wide plus its own padding; leave room or it gets scrollbars
-await popup.setViewport({ width: 340, height: 240, deviceScaleFactor: 2 });
-await popup.goto(`chrome-extension://${extId}/popup.html`);
-await new Promise((r) => setTimeout(r, 400));
-await popup.screenshot({ path: path.join(OUT, 'popup.png') });
-await popup.close();
+  // --- 1. the extension's own popup, exactly as Chrome renders it ---
+  const popup = await browser.newPage();
+  // the popup is 300px wide plus its own padding; leave room or it gets scrollbars
+  await popup.setViewport({ width: 340, height: 240, deviceScaleFactor: 2 });
+  await popup.goto(`chrome-extension://${extId}/popup.html`);
+  await new Promise((r) => setTimeout(r, 400));
+  await popup.screenshot({ path: path.join(OUT, 'popup.png') });
+  await popup.close();
 
-// --- 2. collect real entries through the extension's own content scripts ---
-await swEval(sw, `self.__seen = [];
-  chrome.runtime.onMessage.addListener((m) => { if (m.type === 'log') self.__seen.push(m.entry); });
-  true`);
+  // --- 2. collect real entries, the way a recording session does ---
+  // Console goes through the extension's own inject.js -> relay.js -> worker
+  // path. Network is collected here with chrome.webRequest and the same
+  // per-tab filter background.js uses, because the extension only attaches
+  // those listeners inside a session and starting one needs a toolbar click.
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: 2 });
+  await page.goto(origin, { waitUntil: 'networkidle2' });
+  const tabId = await swEval(sw, '(async () => (await chrome.tabs.query({ active: true }))[0].id)()');
 
-const page = await browser.newPage();
-await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: 2 });
-await page.goto(origin, { waitUntil: 'networkidle2' });
+  await swEval(sw, `self.__seen = [];
+    self.__net = [];
+    self.__pending = new Map();
+    chrome.runtime.onMessage.addListener((m) => { if (m.type === 'log') self.__seen.push(m.entry); });
+    chrome.webRequest.onBeforeRequest.addListener(
+      (d) => self.__pending.set(d.requestId, d.timeStamp), { urls: ['<all_urls>'], tabId: ${tabId} });
+    chrome.webRequest.onCompleted.addListener((d) => {
+      const started = self.__pending.get(d.requestId);
+      if (started === undefined) return;
+      self.__pending.delete(d.requestId);
+      self.__net.push({ kind: 'network', t: started, method: d.method, url: d.url,
+        resourceType: d.type, status: d.statusCode, durationMs: Math.round(d.timeStamp - started) });
+    }, { urls: ['<all_urls>'], tabId: ${tabId} });
+    true`);
 
-// switch capture on the way start() does
-await swEval(sw, `(async () => {
-  for (const t of await chrome.tabs.query({})) {
-    await chrome.tabs.sendMessage(t.id, { type: 'capture', on: true }).catch(() => {});
+  // switch console capture on the way start() does
+  await swEval(sw, `(async () => {
+    for (const t of await chrome.tabs.query({})) {
+      await chrome.tabs.sendMessage(t.id, { type: 'capture', on: true }).catch(() => {});
+    }
+    return true;
+  })()`);
+
+  const t0 = Date.now();
+  await page.click('#apply');
+  await new Promise((r) => setTimeout(r, 900));
+  const logs = await swEval(sw, 'self.__seen');
+  const net = await swEval(sw, 'self.__net');
+  await page.close();
+
+  if (!logs.length) throw new Error('no console entries collected — the content scripts are not delivering');
+  if (!net.length) throw new Error('no network entries collected — the webRequest filter caught nothing');
+
+  // --- 3. the report, built from those real entries ---
+  const entries = [...logs, ...net]
+    .map((e) => ({ ...e, at: Math.max(0, e.t - t0) }))
+    .sort((a, b) => a.at - b.at);
+
+  const report = buildReport({
+    description: 'Bug on Checkout — Acme Store',
+    url: `${origin}/checkout`,
+    startedAt: t0,
+    durationMs: Date.now() - t0,
+    userAgent: await browser.userAgent(),
+    video: '', // the capture path cannot be driven headlessly; see PR notes
+    entries,
+  });
+  fs.writeFileSync(path.join(OUT, 'report.html'), report);
+
+  const view = await browser.newPage();
+  await view.setViewport({ width: 1200, height: 760, deviceScaleFactor: 2 });
+  await view.setContent(report, { waitUntil: 'domcontentloaded' });
+  await view.screenshot({ path: path.join(OUT, 'report.png') });
+
+  // --- 4. a screen recording of the report being used ---
+  const rec = await view.screencast({ path: path.join(OUT, 'report-demo.webm') });
+  for (const filter of ['console', 'network', 'all']) {
+    await view.click(`nav button[data-filter="${filter}"]`);
+    await new Promise((r) => setTimeout(r, 1100));
   }
-  return true;
-})()`);
+  await rec.stop();
 
-const t0 = Date.now();
-await page.click('#apply');
-await new Promise((r) => setTimeout(r, 900));
-const entries = await swEval(sw, 'self.__seen');
-await page.close();
-
-if (!entries.length) throw new Error('no entries collected — the content scripts are not delivering');
-
-// --- 3. the report, built from those real entries ---
-const report = buildReport({
-  description: 'Bug on Checkout — Acme Store',
-  url: `${origin}/checkout`,
-  startedAt: t0,
-  durationMs: 4200,
-  userAgent: await browser.userAgent(),
-  video: '', // the capture path cannot be driven headlessly; see PR notes
-  entries: entries.map((e) => ({ ...e, at: e.t - t0 })).concat([
-    { kind: 'network', method: 'GET', url: `${origin}/api/coupon?code=SPRING20`,
-      resourceType: 'fetch', status: 422, durationMs: 38, at: 1500 },
-  ]),
-});
-fs.writeFileSync(path.join(OUT, 'report.html'), report);
-
-const view = await browser.newPage();
-await view.setViewport({ width: 1200, height: 760, deviceScaleFactor: 2 });
-await view.setContent(report, { waitUntil: 'domcontentloaded' });
-await view.screenshot({ path: path.join(OUT, 'report.png') });
-
-// --- 4. a screen recording of the report being used ---
-const rec = await view.screencast({ path: path.join(OUT, 'report-demo.webm') });
-for (const filter of ['console', 'network', 'all']) {
-  await view.click(`nav button[data-filter="${filter}"]`);
-  await new Promise((r) => setTimeout(r, 1100));
+  console.log(`collected ${logs.length} console and ${net.length} network entries`);
+} finally {
+  await browser?.close().catch(() => {});
+  server.close();
 }
-await rec.stop();
-
-await browser.close();
-server.close();
 
 // GitHub embeds animated GIFs inline in a PR body; .webm only renders as a link.
 execFileSync('ffmpeg', ['-y', '-i', path.join(OUT, 'report-demo.webm'),
@@ -142,4 +175,3 @@ fs.unlinkSync(path.join(OUT, 'report-demo.webm'));
 
 const size = (f) => `${(fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0)}KB`;
 for (const f of fs.readdirSync(OUT)) console.log(`${f}  ${size(f)}`);
-console.log(`\ncollected ${entries.length} real console entries through the extension`);

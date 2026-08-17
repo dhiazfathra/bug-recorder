@@ -37,9 +37,9 @@ function buildReport(data) {
 </section>
 <section>
   <nav>
-    <button data-filter="all" aria-pressed="true">All</button>
-    <button data-filter="console" aria-pressed="false">Console</button>
-    <button data-filter="network" aria-pressed="false">Network</button>
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="console" aria-pressed="false">Console</button>
+    <button type="button" data-filter="network" aria-pressed="false">Network</button>
   </nav>
   <ul id="entries"></ul>
 </section>

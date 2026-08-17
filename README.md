@@ -43,6 +43,7 @@ the video, so a log line at `3.4s` is the one that fired at `3.4s` in the player
 | `npm run e2e:setup` | Download Chrome for Testing 152.0.7977.42 (once, before `test:e2e`) |
 | `npm run test:e2e` | Run the browser tests against a really-installed extension |
 | `npm run bench` | Measure what the extension costs while idle (needs `e2e:setup` too) |
+| `npm run evidence` | Regenerate `docs/evidence/` (needs `e2e:setup` and `ffmpeg` on PATH) |
 | `npm run lint` | Run ESLint |
 
 ## Architecture

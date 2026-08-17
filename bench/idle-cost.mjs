@@ -59,7 +59,8 @@ async function run(withExt) {
     const consoleMs = await Promise.all(pages.map((p) => p.evaluate(() => window.__consoleMs)));
     return { restoreMs, consoleMs: consoleMs.reduce((a, b) => a + b, 0) / consoleMs.length };
   } finally {
-    await browser?.close();
+    // close() must not be able to skip the server close, or the run hangs
+    await browser?.close().catch(() => {});
     server.close();
   }
 }

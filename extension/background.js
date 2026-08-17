@@ -175,8 +175,8 @@ async function stop(description) {
     });
   } catch (e) {
     // Normally 'recording-ended' releases the session once the report is saved.
-    // If the offscreen document never answers that never arrives, leaving the
-    // listeners attached to every page and blocking the next start.
+    // If the offscreen document never answers, that message never arrives, so
+    // the listeners stay attached to every page and no later start can work.
     release();
     await chrome.offscreen.closeDocument().catch(() => {});
     throw e;
